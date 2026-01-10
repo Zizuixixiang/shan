@@ -23915,6 +23915,15 @@ lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer
               .filter((msg) => !msg.isTemporary)
               .slice(-chat.settings.maxMemory); // 1. 【修复】把这行加回来！
 
+            // --- 【新增代码 A】计算最后一条 AI 回复在切片中的索引 ---
+            let lastAssistantIndex = -1;
+            for (let i = historySlice.length - 1; i >= 0; i--) {
+              if (historySlice[i].role === 'assistant') {
+                lastAssistantIndex = i;
+                break;
+              }
+            }
+
             // --- 红包状态实时播报模块 ---
             let redPacketContext = "";
             // 1. 从最近的聊天记录中，找出所有红包消息
@@ -24477,13 +24486,13 @@ lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer
                     // 否则，说明它是更早之前的轮次，替换为文字。
                     if (index > lastAssistantIndex) {
                       return {
-                      role: "user",
-                      content: [{ type: "text", text: prefix }, ...msg.content],
+                        role: "user",
+                        content: [{ type: "text", text: prefix }, ...msg.content],
                     };
                     } else {
                     return {
-                      role: "user",
-                      content: prefix + "[用户发送了一张图片]", // 历史图片转为文字描述
+                        role: "user",
+                        content: prefix + "[用户发送了一张图片]", // 历史图片转为文字描述
                       };
                     }
                   }
@@ -34975,15 +34984,6 @@ lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer
           const historySlice = chat.history
             .filter((msg) => !msg.isHidden)
             .slice(-maxMemory);
-
-          // --- 找到最后一条 AI 消息的位置 ---
-          let lastAssistantIndex = -1;
-          for (let i = historySlice.length - 1; i >= 0; i--) {
-            if (historySlice[i].role === 'assistant') {
-              lastAssistantIndex = i;
-              break;
-            }
-          }
 
           // 2. 格式化这些记录，让AI能看懂
           const recentContextSummary = historySlice
