@@ -45063,12 +45063,13 @@ lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer
             count: calculateTokenCount(summaryText),
           });
 
-          // 5. 短期记忆 (对话) - 【核心修改部分】
+          // 5. 短期记忆 (对话) - 【高性能优化版】
+          // 这里的逻辑只遍历需要发送给AI的那些消息，不碰数据库里的无关数据
           const history = chat.history.filter((msg) => !msg.isHidden);
           const memoryDepth = settings.maxMemory || 10;
           const contextMessages = history.slice(-memoryDepth);
 
-          // --- 核心修复 A：在这里也计算一次 lastAssistantIndex ---
+          // 计算最后一轮 AI 的位置
           let lastAssistantIndex = -1;
           for (let i = contextMessages.length - 1; i >= 0; i--) {
             if (contextMessages[i].role === 'assistant') {
@@ -45080,46 +45081,44 @@ lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer
           let userMsgLen = 0;
           let aiMsgLen = 0;
 
-          // contextMessages.forEach((msg) => {
-          //   let content =
-          //     typeof msg.content === "string"
-          //       ? msg.content
-          //       : JSON.stringify(msg.content);
-          //   let len = calculateTokenCount(content);
-
           contextMessages.forEach((msg, index) => {
-            let contentToMeasure = "";
+            let len = 0;
+            let contentForPreview = "";
 
-            // --- 核心修复 B：判断是否为图片，并应用省流规则 ---
+            // 1. 优先检查是否为图片 (image_url)
+            // 这样可以避免对大图进行 JSON.stringify，解决卡顿问题的关键！
             if (Array.isArray(msg.content) && msg.content[0]?.type === "image_url") {
-                // 逻辑同发送模块：
-                // 如果当前消息索引 > 最后一条AI消息索引，说明是本轮新图 -> 计算原图大小
-                // 否则 -> 只计算 "[用户发送了一张图片]" 这几个字的长度
                 if (index > lastAssistantIndex) {
-                    contentToMeasure = JSON.stringify(msg.content); // 原图数据，很大
+                    // 本轮新图：必须计算真实大小 (Base64)
+                    // 只有这里才不得不处理大字符串，但因为是“本轮”，数量通常只有1张，不会卡死
+                    const rawJson = JSON.stringify(msg.content);
+                    len = calculateTokenCount(rawJson);
+                    contentForPreview = "[🖼️新图片数据...]";
                 } else {
-                    contentToMeasure = "(Timestamp: " + msg.timestamp + ") [用户发送了一张图片]"; // 省流文本，很小
+                    // 历史旧图：直接使用占位符长度，性能极快
+                    const placeholder = `(Timestamp: ${msg.timestamp}) [用户发送了一张图片]`;
+                    len = calculateTokenCount(placeholder);
+                    contentForPreview = "[📝历史图片(已省流)]";
                 }
             } 
-            // 普通文本或其他类型
+            // 2. 普通文本或其他类型
             else {
-                contentToMeasure = typeof msg.content === "string" 
+                const textContent = typeof msg.content === "string" 
                     ? msg.content 
                     : JSON.stringify(msg.content);
+                len = calculateTokenCount(textContent);
+                contentForPreview = textContent.substring(0, 15) + "...";
             }
 
-            let len = calculateTokenCount(contentToMeasure);
-
-            // --- 异常检测逻辑 ---
+            // 3. 异常检测 (只记录真正占用大的)
             if (len > outlierThreshold) {
               outliers.push({
                 role: msg.role,
-                preview: content.substring(0, 15) + "...", // 预览前15个字
+                preview: contentForPreview,
                 count: len,
-                timestamp: msg.timestamp, // 用于跳转
+                timestamp: msg.timestamp,
               });
             }
-            // ------------------
 
             if (msg.role === "user") userMsgLen += len;
             else aiMsgLen += len;
