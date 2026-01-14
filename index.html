@@ -47559,42 +47559,73 @@ lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer
         }
 
         /**
-         * 压缩图片至指定质量并返回Base64，同时跳过GIF
-         * @param {string} base64Str - 原始图片的Base64字符串 (data:...)
+         * 压缩图片至指定质量并调整尺寸，同时跳过GIF
+         * @param {string} base64Str - 原始图片的Base64字符串
          * @param {number} quality - 压缩质量 (0.1 - 1.0)
-         * @returns {Promise<string>} - 返回压缩后的JPEG格式的Base64字符串，或原始的GIF/PNG字符串
+         * @returns {Promise<string>} - 返回压缩后的JPEG格式Base64
          */
         function compressImage(base64Str, quality) {
           return new Promise((resolve, reject) => {
-            // 如果是 GIF，或者质量设置为1.0（不压缩），直接返回原图，不进行任何处理。
-            if (
-              base64Str.startsWith("data:image/gif") ||
-              quality >= 1.0 ||
-              !base64Str.startsWith("data:image")
-            ) {
-              resolve(base64Str);
-              return;
-            }
+              // 1. 如果是 GIF，为了保留动效，直接原样返回，不压缩
+              if (base64Str.startsWith("data:image/gif") || !base64Str.startsWith("data:image")) {
+                  resolve(base64Str);
+                  return;
+              }
 
-            const img = new Image();
-            img.src = base64Str;
+              const img = new Image();
+              img.src = base64Str;
 
-            img.onload = () => {
-              const canvas = document.createElement("canvas");
-              const ctx = canvas.getContext("2d");
-              canvas.width = img.width;
-              canvas.height = img.height;
-              ctx.drawImage(img, 0, 0);
+              img.onload = () => {
+                  // === 【核心修改：尺寸限制】 ===
+                  const MAX_WIDTH = 1024;  // 限制最大宽度 (建议 1024 或 800)
+                  const MAX_HEIGHT = 1024; // 限制最大高度
 
-              // 确保 PNG 和其他静态图能被正确压缩。
-              const compressedBase64 = canvas.toDataURL("image/jpeg", quality);
-              resolve(compressedBase64);
-            };
+                  let width = img.width;
+                  let height = img.height;
 
-            img.onerror = (err) => {
-              console.error("图片加载失败，无法压缩:", err);
-              reject(new Error("图片加载失败，无法压缩"));
-            };
+                  // 如果图片尺寸超过限制，按比例缩小
+                  if (width > height) {
+                      if (width > MAX_WIDTH) {
+                          height *= MAX_WIDTH / width;
+                          width = MAX_WIDTH;
+                      }
+                  } else {
+                      if (height > MAX_HEIGHT) {
+                          width *= MAX_HEIGHT / height;
+                          height = MAX_HEIGHT;
+                      }
+                  }
+                  // ===========================
+
+                  const canvas = document.createElement("canvas");
+                  const ctx = canvas.getContext("2d");
+                  
+                  // 使用计算后的新尺寸
+                  canvas.width = width;
+                  canvas.height = height;
+                  
+                  // 铺个白底，防止PNG透明背景变黑
+                  ctx.fillStyle = "#FFFFFF";
+                  ctx.fillRect(0, 0, width, height);
+                  
+                  ctx.drawImage(img, 0, 0, width, height);
+
+                  // 强制转为 JPEG，进一步减小体积
+                  const compressedBase64 = canvas.toDataURL("image/jpeg", quality);
+                  
+                  // 如果压缩后反而变大了（极少情况），就返回原图，否则返回压缩图
+                  if (compressedBase64.length < base64Str.length) {
+                       resolve(compressedBase64);
+                  } else {
+                       resolve(base64Str);
+                  }
+              };
+
+              img.onerror = (err) => {
+                  console.error("图片加载失败，跳过压缩:", err);
+                  // 出错时为了不阻断流程，直接返回原图
+                  resolve(base64Str);
+              };
           });
         }
 
